@@ -423,19 +423,20 @@ public class CanalController {
                     runningMonitor.start();
                 }
             }
-
-            if (autoScan) {
-                instanceConfigMonitors.get(config.getMode()).regeister(destination, defaultAction);
-            }
+            // 注册毫无必要
+//            if (autoScan) {
+//                instanceConfigMonitors.get(config.getMode()).regeister(destination, defaultAction);
+//            }
         }
 
         if (autoScan) {
-            instanceConfigMonitors.get(globalInstanceConfig.getMode()).start();
-            for (InstanceConfigMonitor monitor : instanceConfigMonitors.values()) {
-                if (!monitor.isStart()) {
-                    monitor.start();
-                }
-            }
+            instanceConfigMonitors.get(globalInstanceConfig.getMode()).start(); // 开启全局配置扫描
+            // 已开启全局配置扫描, 再多次开启浪费资源
+//            for (InstanceConfigMonitor monitor : instanceConfigMonitors.values()) {
+//                if (!monitor.isStart()) {
+//                    monitor.start();
+//                }
+//            }
         }
 
         // 启动网络接口
