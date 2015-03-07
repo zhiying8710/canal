@@ -1,8 +1,10 @@
 package com.alibaba.otter.canal.deployer;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import org.I0Itec.zkclient.IZkChildListener;
 import org.I0Itec.zkclient.IZkStateListener;
 import org.I0Itec.zkclient.exception.ZkNoNodeException;
 import org.apache.commons.lang.BooleanUtils;
@@ -41,7 +43,7 @@ import com.google.common.collect.MapMaker;
 
 /**
  * canal调度控制器
- * 
+ *
  * @author jianghang 2012-11-8 下午12:03:11
  * @version 1.0.0
  */
@@ -72,6 +74,7 @@ public class CanalController {
     public CanalController(final Properties properties){
         managerClients = new MapMaker().makeComputingMap(new Function<String, CanalConfigClient>() {
 
+            @Override
             public CanalConfigClient apply(String managerAddress) {
                 return getManagerClient(managerAddress);
             }
@@ -109,20 +112,40 @@ public class CanalController {
         ServerRunningMonitors.setServerData(serverData);
         ServerRunningMonitors.setRunningMonitors(new MapMaker().makeComputingMap(new Function<String, ServerRunningMonitor>() {
 
+            @Override
             public ServerRunningMonitor apply(final String destination) {
                 ServerRunningMonitor runningMonitor = new ServerRunningMonitor(serverData);
                 runningMonitor.setDestination(destination);
                 runningMonitor.setListener(new ServerRunningListener() {
 
+                    @Override
                     public void processActiveEnter() {
-                        try {
-                            MDC.put(CanalConstants.MDC_DESTINATION, String.valueOf(destination));
-                            embededCanalServer.start(destination);
-                        } finally {
-                            MDC.remove(CanalConstants.MDC_DESTINATION);
-                        }
+                        zkclientx.subscribeChildChanges(ZookeeperPathUtils.getDestinationPath(destination), new IZkChildListener() {
+
+                            @Override
+                            public void handleChildChange(String parentPath, List<String> currentChilds)
+                                    throws Exception {
+                                if (currentChilds == null ||currentChilds.isEmpty()) {
+                                    return;
+                                }
+                                // 当确定有客户端连上时才启动 instance
+                                for (String child : currentChilds) {
+                                    if (ZookeeperPathUtils.RUNNING_NODE.equals(child) || ZookeeperPathUtils.CLUSTER_NODE.equals(child)) {
+                                        continue;
+                                    }
+                                    try {
+                                        MDC.put(CanalConstants.MDC_DESTINATION, String.valueOf(destination));
+                                        embededCanalServer.start(destination);
+                                        zkclientx.unsubscribeChildChanges(ZookeeperPathUtils.getDestinationPath(destination), this);
+                                    } finally {
+                                        MDC.remove(CanalConstants.MDC_DESTINATION);
+                                    }
+                                }
+                            }
+                        });
                     }
 
+                    @Override
                     public void processActiveExit() {
                         try {
                             MDC.put(CanalConstants.MDC_DESTINATION, String.valueOf(destination));
@@ -132,6 +155,7 @@ public class CanalController {
                         }
                     }
 
+                    @Override
                     public void processStart() {
                         try {
                             if (zkclientx != null) {
@@ -140,10 +164,12 @@ public class CanalController {
                                 initCid(path);
                                 zkclientx.subscribeStateChanges(new IZkStateListener() {
 
+                                    @Override
                                     public void handleStateChanged(KeeperState state) throws Exception {
 
                                     }
 
+                                    @Override
                                     public void handleNewSession() throws Exception {
                                         initCid(path);
                                     }
@@ -154,6 +180,7 @@ public class CanalController {
                         }
                     }
 
+                    @Override
                     public void processStop() {
                         try {
                             MDC.put(CanalConstants.MDC_DESTINATION, String.valueOf(destination));
@@ -180,6 +207,7 @@ public class CanalController {
         if (autoScan) {
             defaultAction = new InstanceAction() {
 
+                @Override
                 public void start(String destination) {
                     InstanceConfig config = instanceConfigs.get(destination);
                     if (config == null) {
@@ -197,6 +225,7 @@ public class CanalController {
                     }
                 }
 
+                @Override
                 public void stop(String destination) {
                     // 此处的stop，代表强制退出，非HA机制，所以需要退出HA的monitor和配置信息
                     InstanceConfig config = instanceConfigs.remove(destination);
@@ -209,6 +238,7 @@ public class CanalController {
                     }
                 }
 
+                @Override
                 public void reload(String destination) {
                     // 目前任何配置变化，直接重启，简单处理
                     stop(destination);
@@ -218,6 +248,7 @@ public class CanalController {
 
             instanceConfigMonitors = new MapMaker().makeComputingMap(new Function<InstanceMode, InstanceConfigMonitor>() {
 
+                @Override
                 public InstanceConfigMonitor apply(InstanceMode mode) {
                     int scanInterval = Integer.valueOf(getProperty(properties, CanalConstants.CANAL_AUTO_SCAN_INTERVAL));
 
@@ -267,6 +298,7 @@ public class CanalController {
 
         instanceGenerator = new CanalInstanceGenerator() {
 
+            @Override
             public CanalInstance generate(String destination) {
                 InstanceConfig config = instanceConfigs.get(destination);
                 if (config == null) {
@@ -366,10 +398,12 @@ public class CanalController {
         if (zkclientx != null) {
             this.zkclientx.subscribeStateChanges(new IZkStateListener() {
 
+                @Override
                 public void handleStateChanged(KeeperState state) throws Exception {
 
                 }
 
+                @Override
                 public void handleNewSession() throws Exception {
                     initCid(path);
                 }
